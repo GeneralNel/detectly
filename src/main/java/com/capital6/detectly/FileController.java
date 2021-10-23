@@ -1,11 +1,7 @@
 package com.capital6.detectly;
 
 import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Base64;
-import java.util.Scanner;
-import java.util.concurrent.atomic.AtomicLong;
 
 import org.springframework.web.bind.annotation.*;
 
