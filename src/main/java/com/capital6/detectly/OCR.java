@@ -14,12 +14,15 @@ import org.apache.pdfbox.pdmodel.PDPageTree;
 import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.graphics.PDXObject;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
-import org.opencv.core.Core;
+import org.apache.pdfbox.rendering.ImageType;
+import org.apache.pdfbox.rendering.PDFRenderer;
 import org.opencv.core.Mat;
 import org.opencv.core.Size;
-import org.opencv.highgui.Highgui;
+import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 
+import javax.imageio.ImageIO;
+import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -28,7 +31,6 @@ import java.util.LinkedList;
 public class OCR {
 
     private ITesseract tesseract;
-    private Highgui Imgcodecs;
 
     public OCR() {
         this.tesseract =  new Tesseract();
@@ -37,18 +39,22 @@ public class OCR {
     }
 
     public String getContentsFromFile(File file) throws IOException, TesseractException {
-        if (isPDF(file))
+        boolean isPDFFile = checkIfPdf(file.getName());
+        if (isPDFFile)
             return getContentsFromPDF(file);
         else
             return getContentsFromImage(file);
     }
 
     // original function
-    public String getContentsFromImage(File file) throws TesseractException {
-        //file = preprocessImage(file);
+    public String getContentsFromImage(File file) throws TesseractException, IOException {
+//        file = preprocessImage(file);
+        // preprocessing on our end
+        file = makeGrayscale(file);
         String contentsAfterOCR = "";
         try {
             contentsAfterOCR = tesseract.doOCR(file);
+//            tesseract.getWords()
             System.out.println(contentsAfterOCR);
         } catch (TesseractException e){
             System.out.println("Exception " + e.getMessage());
@@ -58,33 +64,71 @@ public class OCR {
 
     private File preprocessImage(File file) {
         // create source
-        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+//        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+//        System.loadLibrary(org.opencv.core.Core.NATIVE_LIBRARY_NAME);
+        // setup opencv
+        nu.pattern.OpenCV.loadShared();
+
+        // load source image
         String preprocessedPath = "src/main/resources/preprocessedFiles/" + file.getName();
-        Mat img  = Imgcodecs.imread(file.getAbsolutePath());
-        Imgcodecs.imwrite(preprocessedPath, img);
+        Imgcodecs imageCodecs = new Imgcodecs();
+        Mat img  = imageCodecs.imread(file.getAbsolutePath());
+        imageCodecs.imwrite(preprocessedPath, img);
 
         // make grayscale
         Mat imgGray = new Mat();
         Imgproc.cvtColor(img, imgGray, Imgproc.COLOR_BGR2GRAY);
-        Imgcodecs.imwrite(preprocessedPath, imgGray);
+        imageCodecs.imwrite(preprocessedPath, imgGray);
 
         // reduce blur
         Mat imgGaussianBlur = new Mat();
         Imgproc.GaussianBlur(imgGray,imgGaussianBlur,new Size(3, 3),0);
-        Imgcodecs.imwrite(preprocessedPath, imgGaussianBlur);
+        imageCodecs.imwrite(preprocessedPath, imgGaussianBlur);
 
         // adaptive threshold
         Mat imgAdaptiveThreshold = new Mat();
         Imgproc.adaptiveThreshold(imgGaussianBlur, imgAdaptiveThreshold, 255, Imgproc.ADAPTIVE_THRESH_MEAN_C ,Imgproc.THRESH_BINARY,99, 4);
-        Imgcodecs.imwrite(preprocessedPath, imgAdaptiveThreshold);
+        imageCodecs.imwrite(preprocessedPath, imgAdaptiveThreshold);
 
         return new File(preprocessedPath);
     }
 
-    public String getContentsFromPDF(File file) throws TesseractException {
+    // converts the image to grayscale and to jpg format
+    private File makeGrayscale(File input) throws IOException {
+        BufferedImage image = ImageIO.read(input);
+        int width = image.getWidth();
+        int height = image.getHeight();
+
+        for(int i=0; i<height; i++) {
+
+            for(int j=0; j<width; j++) {
+
+                Color c = new Color(image.getRGB(j, i));
+                int red = (int)(c.getRed() * 0.299);
+                int green = (int)(c.getGreen() * 0.587);
+                int blue = (int)(c.getBlue() *0.114);
+                Color newColor = new Color(red+green+blue,
+
+                        red+green+blue,red+green+blue);
+
+                image.setRGB(j,i,newColor.getRGB());
+            }
+        }
+        File output = new File("src/main/resources/preprocessedFiles/"+"grayscaledOutput.jpg");
+        ImageIO.write(image, "jpg", output);
+        return output;
+    }
+
+    public String getContentsFromPDF(File file) throws TesseractException, IOException {
+        PDDocument document = PDDocument.load(file);
+        PDFRenderer pdfRenderer = new PDFRenderer(document);
+
+        BufferedImage bufferedImage = pdfRenderer.renderImageWithDPI(0, 300, ImageType.RGB);
+        File inputPdf = new File("src/main/resources/preprocessedFiles/"+"imageFromPdf.jpg");
+        ImageIO.write(bufferedImage, "jpg", inputPdf);
         String contentsAfterOCR = "";
         try {
-            // contentsAfterOCR = tesseract.doOCR(file);
+//            contentsAfterOCR = getContentsFromImage(inputPdf);
             contentsAfterOCR = extractText(file);
             System.out.println(contentsAfterOCR);
         } catch (IOException e){
@@ -142,7 +186,6 @@ public class OCR {
         }
 
         ocrResults = ocrResults.trim();
-        // TODO remove the trash that doesn't seem to be words
         return ocrResults;
     }
 
@@ -154,7 +197,6 @@ public class OCR {
         int numberOfPages = 0;
 
         LinkedList<BufferedImage> bufferedImages = new LinkedList<>();
-
 
         PDDocument doc = PDDocument.load(pdfFile);
 
@@ -197,41 +239,11 @@ public class OCR {
 
     }
 
-    /**
-     * Test if the data in the given byte array represents a PDF file.
-     */
-    public static boolean isPDF(File fileName) throws IOException {
-        byte[] data = FileUtils.readFileToByteArray(fileName);
-        if (data != null && data.length > 4 &&
-                data[0] == 0x25 && // %
-                data[1] == 0x50 && // P
-                data[2] == 0x44 && // D
-                data[3] == 0x46 && // F
-                data[4] == 0x2D) { // -
-
-            // version 1.3 file terminator
-            if (data[5] == 0x31 && data[6] == 0x2E && data[7] == 0x33 &&
-                    data[data.length - 7] == 0x25 && // %
-                    data[data.length - 6] == 0x25 && // %
-                    data[data.length - 5] == 0x45 && // E
-                    data[data.length - 4] == 0x4F && // O
-                    data[data.length - 3] == 0x46 && // F
-                    data[data.length - 2] == 0x20 && // SPACE
-                    data[data.length - 1] == 0x0A) { // EOL
-                return true;
-            }
-
-            // version 1.3 file terminator
-            if (data[5] == 0x31 && data[6] == 0x2E && data[7] == 0x34 &&
-                    data[data.length - 6] == 0x25 && // %
-                    data[data.length - 5] == 0x25 && // %
-                    data[data.length - 4] == 0x45 && // E
-                    data[data.length - 3] == 0x4F && // O
-                    data[data.length - 2] == 0x46 && // F
-                    data[data.length - 1] == 0x0A) { // EOL
-                return true;
-            }
-        }
-        return false;
+    private boolean checkIfPdf(String fileName) {
+        String extension = "";
+        int i = fileName.lastIndexOf('.');
+        if (i >= 0) { extension = fileName.substring(i+1); }
+        return extension.equals("pdf");
     }
+
 }
