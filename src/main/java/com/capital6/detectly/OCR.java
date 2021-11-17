@@ -50,11 +50,10 @@ public class OCR {
     public String getContentsFromImage(File file) throws TesseractException, IOException {
 //        file = preprocessImage(file);
         // preprocessing on our end
-        file = makeGrayscale(file);
+        //file = makeGrayscale(file);
         String contentsAfterOCR = "";
         try {
             contentsAfterOCR = tesseract.doOCR(file);
-//            tesseract.getWords()
             System.out.println(contentsAfterOCR);
         } catch (TesseractException e){
             System.out.println("Exception " + e.getMessage());
@@ -134,6 +133,7 @@ public class OCR {
         } catch (IOException e){
             System.out.println("Exception " + e.getMessage());
         }
+        document.close();
         return contentsAfterOCR;
     }
 

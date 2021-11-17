@@ -1,49 +1,128 @@
 package com.capital6.detectly;
 
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import net.sourceforge.tess4j.TesseractException;
+import org.kie.api.runtime.KieContainer;
+import org.kie.api.runtime.KieSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import static com.capital6.detectly.KVExtractor.createMockPaystub;
 
 @RestController
 public class FileUploadController {
 
-    @Value("${file.upload-dir}")
-    String FILE_DIRECTORY;
+    private OCR myOCR;
 
     @Autowired
-    ObjectMapper mapper;
+    private KieContainer kieContainer;
 
-    @PostMapping("/uploadFile")
-    public ResponseEntity<Object> fileUpload(@RequestParam("file") MultipartFile file) throws IOException {
-        File myFile = new File(FILE_DIRECTORY+file.getOriginalFilename());
-        myFile.createNewFile();
-        FileOutputStream fos = new FileOutputStream(myFile);
-        fos.write(file.getBytes());
-        fos.close();
-        return new ResponseEntity<Object>("File uploaded successfully", HttpStatus.OK);
+    @Value("${file.upload-dir}")
+    String FILE_DIRECTORY;
+    private Paystub paystub;
+
+    public FileUploadController() {
+        myOCR = new OCR();
     }
 
     @GetMapping("/getContentsFromImg")
-    public String getContentsFromImg(@RequestParam("file") MultipartFile file) throws IOException, TesseractException {
+    public Paystub getContentsFromImg(@RequestParam("file") MultipartFile file) throws IOException, TesseractException {
         File myFile = new File(FILE_DIRECTORY+file.getOriginalFilename());
         myFile.createNewFile();
         String filepath = "src/main/resources/uploadedFiles/" + file.getOriginalFilename();
         File newFile = new File(filepath);
+
         try (OutputStream os = new FileOutputStream(filepath)) {
             os.write(file.getBytes());
         }
-        OCR myOCR = new OCR();
 
-        return myOCR.getContentsFromFile(newFile);
+        String ocrOutput = myOCR.getContentsFromFile(newFile);
+        String outputPath = "src/main/resources/processedFiles/output.txt";
+        Files.write( Paths.get(outputPath), ocrOutput.getBytes());
+
+        return KVExtractor.extractKeyValueToPaystub(new File(outputPath));
+
     }
+
+    @RequestMapping(value = "/testFraudCheck", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Paystub testDetectFraudPaystub() throws IOException, TesseractException {
+
+        paystub = createMockPaystub();
+
+        KieSession kieSession = kieContainer.newKieSession();
+        kieSession.insert(paystub);
+        kieSession.fireAllRules();
+        kieSession.dispose();
+
+        return paystub;
+    }
+
+    @RequestMapping(value = "/fraudCheck", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Paystub detectFraudPaystub(@RequestParam("file") MultipartFile file) throws IOException, TesseractException {
+
+        paystub = performOCR(file);
+
+        KieSession kieSession = kieContainer.newKieSession();
+        kieSession.insert(paystub);
+        kieSession.fireAllRules();
+        kieSession.dispose();
+
+        return paystub;
+    }
+
+    @RequestMapping(value = "/getFraudulence", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Paystub getFraudulenceFromPaystub(@RequestParam(value="name") String name, @RequestParam(value="ssn") String ssn) {
+        Paystub paystub = new Paystub(name, ssn);
+        KieSession kieSession = kieContainer.newKieSession();
+        kieSession.insert(paystub);
+        kieSession.fireAllRules();
+        kieSession.dispose();
+        return paystub;
+    }
+
+    private Paystub performOCR(MultipartFile file) throws IOException, TesseractException {
+        File myFile = new File(FILE_DIRECTORY+file.getOriginalFilename());
+        myFile.createNewFile();
+        String filepath = "src/main/resources/uploadedFiles/" + file.getOriginalFilename();
+        File newFile = new File(filepath);
+
+        try (OutputStream os = new FileOutputStream(filepath)) {
+            os.write(file.getBytes());
+        }
+
+        String ocrOutput = myOCR.getContentsFromFile(newFile);
+        String outputPath = "src/main/resources/processedFiles/output.txt";
+        Files.write( Paths.get(outputPath), ocrOutput.getBytes());
+        File processedFile = new File(outputPath);
+
+        Paystub foundPaystub =  KVExtractor.extractKeyValueToPaystub(processedFile);
+        newFile.delete();
+        processedFile.delete();
+
+        return foundPaystub;
+    }
+
+
+    //    @GetMapping("/getContentsFromImg")
+//    public String getContentsFromImg1(@RequestParam("file") MultipartFile file, OCR ocr, FileOutputStream outputStream, File createdFile) throws IOException, TesseractException {
+//        File myFile = createdFile;
+//        createdFile.createNewFile();
+//        String filepath = "src/main/resources/uploadedFiles/" + file.getOriginalFilename();
+////        File newFile = new File(filepath);
+//        try (OutputStream os = outputStream) {
+//            os.write(file.getBytes());
+//        }
+////        OCR myOCR = new OCR();
+//
+//        return ocr.getContentsFromFile(createdFile);
+//    }
 
     @GetMapping("/getUploadedFile")
     public Map<String, String> fileContentsJSON(@RequestParam(value = "file") String file) throws IOException {

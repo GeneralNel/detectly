@@ -1,0 +1,17 @@
+package rules;
+
+import com.capital6.detectly.Paystub;
+
+rule "SSNHidden"
+    when
+        paystub : Paystub(ssn.val == "XXX-XX-XXXX")
+    then
+        paystub.validateSSN(false, "hidden ssn");
+end
+
+rule "SSNIncorrectFormat"
+    when
+        paystub : Paystub(ssn.val.length()!=11)
+    then
+        paystub.validateSSN(false, "invalid format");
+end
