@@ -46,11 +46,26 @@ public class OCR {
             return getContentsFromImage(file);
     }
 
+    public String getContentsFromPDF(File file) throws TesseractException, IOException {
+        PDDocument document = PDDocument.load(file);
+        PDFRenderer pdfRenderer = new PDFRenderer(document);
+
+        BufferedImage bufferedImage = pdfRenderer.renderImageWithDPI(0, 300, ImageType.RGB);
+        File inputPdf = new File("src/main/resources/preprocessedFiles/"+"imageFromPdf.jpg");
+        ImageIO.write(bufferedImage, "jpg", inputPdf);
+        String contentsAfterOCR = "";
+        try {
+            contentsAfterOCR = extractText(file);
+            System.out.println(contentsAfterOCR);
+        } catch (IOException e){
+            System.out.println("Exception " + e.getMessage());
+        }
+        document.close();
+        return contentsAfterOCR;
+    }
+
     // original function
     public String getContentsFromImage(File file) throws TesseractException, IOException {
-//        file = preprocessImage(file);
-        // preprocessing on our end
-        //file = makeGrayscale(file);
         String contentsAfterOCR = "";
         try {
             contentsAfterOCR = tesseract.doOCR(file);
@@ -62,10 +77,6 @@ public class OCR {
     }
 
     private File preprocessImage(File file) {
-        // create source
-//        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
-//        System.loadLibrary(org.opencv.core.Core.NATIVE_LIBRARY_NAME);
-        // setup opencv
         nu.pattern.OpenCV.loadShared();
 
         // load source image
@@ -118,24 +129,6 @@ public class OCR {
         return output;
     }
 
-    public String getContentsFromPDF(File file) throws TesseractException, IOException {
-        PDDocument document = PDDocument.load(file);
-        PDFRenderer pdfRenderer = new PDFRenderer(document);
-
-        BufferedImage bufferedImage = pdfRenderer.renderImageWithDPI(0, 300, ImageType.RGB);
-        File inputPdf = new File("src/main/resources/preprocessedFiles/"+"imageFromPdf.jpg");
-        ImageIO.write(bufferedImage, "jpg", inputPdf);
-        String contentsAfterOCR = "";
-        try {
-//            contentsAfterOCR = getContentsFromImage(inputPdf);
-            contentsAfterOCR = extractText(file);
-            System.out.println(contentsAfterOCR);
-        } catch (IOException e){
-            System.out.println("Exception " + e.getMessage());
-        }
-        document.close();
-        return contentsAfterOCR;
-    }
 
     private BufferedImage correctSkewness(BufferedImage image) {
         final double MINIMUM_DESKEW_THRESHOLD = 0.05d;

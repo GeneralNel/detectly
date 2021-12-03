@@ -32,6 +32,43 @@ public class FileUploadController {
         myOCR = new OCR();
     }
 
+
+    @RequestMapping(value = "/fraudCheck", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
+    public Paystub detectFraudPaystub(@RequestParam("file") MultipartFile file) throws IOException, TesseractException {
+        // pass paystub through OCR
+        paystub = performOCR(file);
+        // run through rules engine
+        KieSession kieSession = kieContainer.newKieSession();
+        kieSession.insert(paystub);
+        kieSession.fireAllRules();
+        kieSession.dispose();
+        // return results in json
+        return paystub;
+    }
+
+
+    private Paystub performOCR(MultipartFile file) throws IOException, TesseractException {
+        File myFile = new File(FILE_DIRECTORY+file.getOriginalFilename());
+        myFile.createNewFile();
+        String filepath = "src/main/resources/uploadedFiles/" + file.getOriginalFilename();
+        File newFile = new File(filepath);
+
+        try (OutputStream os = new FileOutputStream(filepath)) {
+            os.write(file.getBytes());
+        }
+
+        String ocrOutput = myOCR.getContentsFromFile(newFile);
+        String outputPath = "src/main/resources/processedFiles/output.txt";
+        Files.write( Paths.get(outputPath), ocrOutput.getBytes());
+        File processedFile = new File(outputPath);
+
+        Paystub foundPaystub =  KVExtractor.extractKeyValueToPaystub(processedFile);
+        newFile.delete();
+        processedFile.delete();
+
+        return foundPaystub;
+    }
+
     @GetMapping("/getContentsFromImg")
     public Paystub getContentsFromImg(@RequestParam("file") MultipartFile file) throws IOException, TesseractException {
         File myFile = new File(FILE_DIRECTORY+file.getOriginalFilename());
@@ -64,18 +101,6 @@ public class FileUploadController {
         return paystub;
     }
 
-    @RequestMapping(value = "/fraudCheck", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
-    public Paystub detectFraudPaystub(@RequestParam("file") MultipartFile file) throws IOException, TesseractException {
-
-        paystub = performOCR(file);
-
-        KieSession kieSession = kieContainer.newKieSession();
-        kieSession.insert(paystub);
-        kieSession.fireAllRules();
-        kieSession.dispose();
-
-        return paystub;
-    }
 
     @RequestMapping(value = "/getFraudulence", method = RequestMethod.GET, produces = MediaType.APPLICATION_JSON_VALUE)
     public Paystub getFraudulenceFromPaystub(@RequestParam(value="name") String name, @RequestParam(value="ssn") String ssn) {
@@ -85,28 +110,6 @@ public class FileUploadController {
         kieSession.fireAllRules();
         kieSession.dispose();
         return paystub;
-    }
-
-    private Paystub performOCR(MultipartFile file) throws IOException, TesseractException {
-        File myFile = new File(FILE_DIRECTORY+file.getOriginalFilename());
-        myFile.createNewFile();
-        String filepath = "src/main/resources/uploadedFiles/" + file.getOriginalFilename();
-        File newFile = new File(filepath);
-
-        try (OutputStream os = new FileOutputStream(filepath)) {
-            os.write(file.getBytes());
-        }
-
-        String ocrOutput = myOCR.getContentsFromFile(newFile);
-        String outputPath = "src/main/resources/processedFiles/output.txt";
-        Files.write( Paths.get(outputPath), ocrOutput.getBytes());
-        File processedFile = new File(outputPath);
-
-        Paystub foundPaystub =  KVExtractor.extractKeyValueToPaystub(processedFile);
-        newFile.delete();
-        processedFile.delete();
-
-        return foundPaystub;
     }
 
 
